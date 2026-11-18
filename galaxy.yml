@@ -1,0 +1,31 @@
+namespace: velocloud
+name: api
+version: 0.1.0
+readme: README.md
+authors:
+  - Kangwarn Chinthammit
+description: Reusable VeloCloud gateway, enterprise, and edge configuration modules
+license:
+  - GPL-3.0-or-later
+tags:
+  - networking
+  - velocloud
+  - sd-wan
+dependencies: {}
+repository: https://github.com/kangwarn-arista/velocloud-ansible
+homepage: https://github.com/kangwarn-arista/velocloud-ansible
+documentation: https://github.com/kangwarn-arista/velocloud-ansible#readme
+issues: https://github.com/kangwarn-arista/velocloud-ansible/issues
+build_ignore:
+  - tests
+  - .pytest_cache
+  - '**/__pycache__'
+  - '**/.tokens'
+  - '*.tar.gz'
+  - pyproject.toml
+  - uv.lock
+  - .python-version
+  - .venv
+  - .gitignore
+  - .github
+  - dist

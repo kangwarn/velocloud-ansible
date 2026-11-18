@@ -1,0 +1,14 @@
+__pycache__/
+.pytest_cache/
+.venv/
+dist/
+*.tar.gz
+MANIFEST.json
+FILES.json
+tests/output/
+.sanity-tree/
+**/.tokens/
+CLAUDE.md
+AGENT.md
+AGENTS.md
+.cursor/

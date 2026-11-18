@@ -1,0 +1,3 @@
+plugins/module_utils/auth.py import-3.14  # third-party deps come from requirements.txt, not Galaxy
+plugins/module_utils/operator.py import-3.14  # third-party deps come from requirements.txt, not Galaxy
+plugins/module_utils/topology.py import-3.14  # third-party deps come from requirements.txt, not Galaxy

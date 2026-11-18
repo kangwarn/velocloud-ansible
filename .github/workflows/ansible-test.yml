@@ -1,0 +1,75 @@
+---
+# Sanity uses the collection_template ansible-test action. pytest stays as a
+# separate job because this collection's tests live under tests/unit and
+# tests/integration for pytest, not ansible-test units/integration targets.
+# Sanity starts at ansible-core 2.20: that is the first release whose
+# controller Python includes 3.14, which pyvelo requires.
+# Pin both origin and target to 3.14. Without --python, ansible-test still
+# runs compile/import on every controller Python (3.12–3.15 depending on
+# ansible-core), and this collection supports only 3.14 (see tests/config.yml).
+
+name: CI
+on:
+  push:
+    branches:
+      - main
+      - stable-*
+  pull_request:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+    github.event.pull_request.number || github.sha
+    }}
+  cancel-in-progress: true
+
+jobs:
+  sanity:
+    name: Sanity (Ⓐ${{ matrix.ansible }})
+    strategy:
+      matrix:
+        ansible:
+          - stable-2.20
+          - stable-2.21
+          - stable-2.22
+          - devel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perform sanity testing
+        uses: ansible-community/ansible-test-gh-action@release/v1
+        with:
+          ansible-core-version: ${{ matrix.ansible }}
+          testing-type: sanity
+          origin-python-version: "3.14"
+          target-python-version: "3.14"
+          pull-request-change-detection: false
+
+  pytest:
+    name: pytest (Python 3.14)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out collection
+        uses: actions/checkout@v7
+      - name: Install uv and Python 3.14
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.14"
+      - name: Run unit and integration tests
+        run: |
+          uv sync
+          uv run pytest -q
+
+  check:
+    if: always()
+    needs:
+      - sanity
+      - pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}

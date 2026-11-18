@@ -1,0 +1,8 @@
+# Runtime Python packages for all modules (installed in the task's interpreter).
+# pyvelo and pyvelo-intent are pinned to a public fork commit that includes
+# pyvelo-intent (kangwarn-arista/velocloud-api-tools-fork).
+requests>=2.32.5
+pydantic>=2.0
+loguru>=0.7.3
+pyvelo @ git+https://github.com/kangwarn-arista/velocloud-api-tools-fork.git@aeda057a27776692fbbe4761da343676df315708#subdirectory=packages/pyvelo
+pyvelo-intent @ git+https://github.com/kangwarn-arista/velocloud-api-tools-fork.git@aeda057a27776692fbbe4761da343676df315708#subdirectory=packages/pyvelo-intent

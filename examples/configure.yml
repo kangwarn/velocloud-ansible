@@ -1,0 +1,226 @@
+---
+# Run on the controller.
+# First run: provide vco_host, vco_username and vco_password through Ansible Vault.
+# Later runs: only vco_host is required; the saved token is reused.
+# An explicitly supplied vco_token takes precedence over the saved token.
+- name: Configure gateway and enterprise records
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vco_base_url: "https://{{ vco_host | regex_replace('^https://', '') | regex_replace('/+$', '') }}"
+    # Use a different local file for each VCO. Never commit this directory.
+    vco_token_file: "{{ playbook_dir }}/.tokens/{{ vco_host | hash('sha256') }}.token"
+    vco_token_name: ansible-collection-example
+    vco_token_lifetime_ms: 31536000000
+  pre_tasks:
+    - name: Use an explicitly supplied token when available
+      ansible.builtin.set_fact:
+        vco_effective_token: "{{ vco_token | default('') | trim }}"
+      no_log: true
+
+    - name: Check for a saved API token
+      ansible.builtin.stat:
+        path: "{{ vco_token_file }}"
+      register: saved_token_file
+      when: vco_effective_token | length == 0
+
+    - name: Load the saved API token
+      ansible.builtin.slurp:
+        src: "{{ vco_token_file }}"
+      register: saved_token
+      when:
+        - vco_effective_token | length == 0
+        - saved_token_file.stat.exists
+      no_log: true
+
+    - name: Use the saved API token for this run
+      ansible.builtin.set_fact:
+        vco_effective_token: "{{ saved_token.content | b64decode | trim }}"
+      when:
+        - vco_effective_token | length == 0
+        - saved_token_file.stat.exists
+      no_log: true
+
+    - name: Require an existing token for check mode
+      ansible.builtin.assert:
+        that: not ansible_check_mode or vco_effective_token | length > 0
+        fail_msg: Run once without --check to save a token, or supply vco_token for authenticated check-mode reads.
+
+    - name: Bootstrap and save an API token only when no token is available
+      when: vco_effective_token | length == 0
+      no_log: true
+      module_defaults:
+        ansible.builtin.uri:
+          body_format: json
+          return_content: true
+          follow_redirects: none
+          validate_certs: "{{ vco_verify_ssl | default(true) }}"
+          timeout: 30
+      block:
+        - name: Require operator credentials for the first run
+          ansible.builtin.assert:
+            that:
+              - vco_username | default('') | length > 0
+              - vco_password | default('') | length > 0
+            fail_msg: Provide vco_username and vco_password through Ansible Vault for the first run.
+
+        - name: Log in with the operator username and password
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/rest/login/operatorLogin"
+            method: POST
+            body:
+              username: "{{ vco_username }}"
+              password: "{{ vco_password }}"
+            status_code: [200, 302]
+          register: vco_login
+          changed_when: false
+
+        - name: Require an authenticated session cookie
+          ansible.builtin.assert:
+            that: vco_login.cookies['velocloud.session'] | default('') | length > 0
+
+        - name: Get the operator user ID from the authenticated session
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/vco/getSessionContext"
+            method: GET
+            body_format: raw
+            headers:
+              Cookie: "{{ vco_login.cookies_string }}"
+          register: vco_session
+
+        - name: Require an operator user ID
+          ansible.builtin.assert:
+            that: vco_session.json.userId | default(0) | int > 0
+
+        - name: Look for an existing named token before creating one
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/rest/operatorUser/getApiTokens"
+            method: POST
+            headers:
+              Cookie: "{{ vco_login.cookies_string }}"
+            body:
+              id: "{{ vco_session.json.userId | int }}"
+              with: [usernames, tenantName]
+          register: vco_existing_tokens
+          changed_when: false
+
+        - name: Find tokens matching this example's token name
+          ansible.builtin.set_fact:
+            vco_matching_tokens: "{{ vco_existing_tokens.json | selectattr('name', 'equalto', vco_token_name) | list }}"
+
+        - name: Reject ambiguous token names
+          ansible.builtin.assert:
+            that: vco_matching_tokens | length <= 1
+
+        - name: Create an operator API token if the named token does not exist
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/rest/network/createApiToken"
+            method: POST
+            headers:
+              Cookie: "{{ vco_login.cookies_string }}"
+            body:
+              name: "{{ vco_token_name }}"
+              description: Reusable token for the velocloud.api collection example
+              lifetimeMs: "{{ vco_token_lifetime_ms | int }}"
+              operatorUserId: "{{ vco_session.json.userId | int }}"
+          when: vco_matching_tokens | length == 0
+          changed_when: true
+
+        - name: Look up the token ID after creation or reuse
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/rest/operatorUser/getApiTokens"
+            method: POST
+            headers:
+              Cookie: "{{ vco_login.cookies_string }}"
+            body:
+              id: "{{ vco_session.json.userId | int }}"
+              with: [usernames, tenantName]
+          register: vco_tokens
+          changed_when: false
+
+        - name: Select the token to download
+          ansible.builtin.set_fact:
+            vco_matching_tokens: "{{ vco_tokens.json | selectattr('name', 'equalto', vco_token_name) | list }}"
+
+        - name: Require exactly one token with a numeric ID
+          ansible.builtin.assert:
+            that:
+              - vco_matching_tokens | length == 1
+              - vco_matching_tokens[0].id | int > 0
+
+        - name: Download the API token using the login session
+          ansible.builtin.uri:
+            url: "{{ vco_base_url }}/portal/rest/network/downloadApiToken"
+            method: POST
+            headers:
+              Cookie: "{{ vco_login.cookies_string }}"
+            body:
+              id: "{{ vco_matching_tokens[0].id | int }}"
+          register: vco_downloaded_token
+          changed_when: false
+
+        - name: Require a nonempty API token
+          ansible.builtin.assert:
+            that: vco_downloaded_token.json.token | default('') | trim | length > 0
+
+        - name: Check the token file's parent directory
+          ansible.builtin.stat:
+            path: "{{ vco_token_file | dirname }}"
+          register: token_parent
+
+        - name: Create a private directory for the saved token
+          ansible.builtin.file:
+            path: "{{ vco_token_file | dirname }}"
+            state: directory
+            mode: '0700'
+          when: not token_parent.stat.exists
+
+        - name: Save the token for subsequent playbook runs
+          ansible.builtin.copy:
+            dest: "{{ vco_token_file }}"
+            content: "{{ vco_downloaded_token.json.token | trim }}\n"
+            mode: '0600'
+
+        # Keep this last: Ansible reevaluates the block condition for every task.
+        - name: Use the generated token for all subsequent API calls
+          ansible.builtin.set_fact:
+            vco_effective_token: "{{ vco_downloaded_token.json.token | trim }}"
+
+  tasks:
+    - name: Register gateway independently of device activation
+      velocloud.api.gateway:
+        vco_host: "{{ vco_host }}"
+        api_token: "{{ vco_effective_token }}"
+        verify_ssl: "{{ vco_verify_ssl | default(true) }}"
+        name: gateway-1
+        ip_address: 192.0.2.10
+        gateway_pool_id: 1
+        parameters:
+          site:
+            contactName: Network Operations
+            contactEmail: network@example.com
+      register: gateway_result
+      no_log: true
+
+    - name: Configure enterprise and initial profile
+      velocloud.api.enterprise:
+        vco_host: "{{ vco_host }}"
+        api_token: "{{ vco_effective_token }}"
+        verify_ssl: "{{ vco_verify_ssl | default(true) }}"
+        name: Example Enterprise
+        gateway_pool_id: 1
+        configuration_id: 6
+        parameters:
+          description: Managed by Ansible
+          enableEnterpriseDelegationToOperator: true
+          enableEnterpriseUserManagementDelegationToOperator: false
+          delegateEdgeImageManagementToEnterprise: true
+          assignedOperatorProfileConfigurationIds: [6]
+          alertsEnabled: true
+          operatorAlertsEnabled: true
+      register: enterprise_result
+
+    - name: Report enterprise ID
+      ansible.builtin.debug:
+        var: enterprise_result.enterprise.id

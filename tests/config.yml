@@ -1,0 +1,5 @@
+---
+modules:
+  # pyvelo and pyvelo-intent require CPython 3.14. ansible-test still runs
+  # compile/import on every controller Python unless CI passes --python 3.14.
+  python_requires: ">=3.14,<3.15"

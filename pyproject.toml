@@ -1,0 +1,27 @@
+# Development environment only; not part of the released collection.
+[project]
+name = "velocloud-ansible-dev"
+version = "0"
+requires-python = "==3.14.*"
+dependencies = [
+    "ansible-core>=2.15",
+    "requests>=2.32.5",
+    "pydantic>=2.0",
+    "loguru>=0.7.3",
+    "pyvelo",
+    "pyvelo-intent",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0", "pyyaml>=6.0", "black>=25.1.0,<26"]
+
+[tool.uv]
+package = false
+
+# Keep in sync with requirements.txt.
+[tool.uv.sources]
+pyvelo = { git = "https://github.com/kangwarn-arista/velocloud-api-tools-fork.git", rev = "aeda057a27776692fbbe4761da343676df315708", subdirectory = "packages/pyvelo" }
+pyvelo-intent = { git = "https://github.com/kangwarn-arista/velocloud-api-tools-fork.git", rev = "aeda057a27776692fbbe4761da343676df315708", subdirectory = "packages/pyvelo-intent" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
